@@ -1,13 +1,14 @@
 package com.example.firebase_messenger
 
+import android.content.Context
 import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.firebase_messenger.databinding.ActivityMainBinding
-import com.google.android.gms.common.util.JsonUtils
-import com.google.android.gms.tasks.Task
+import com.example.firebase_messenger.firebaselogs.FirebaseLogs
+import com.example.firebase_messenger.firebaselogs.LogInfo
 import com.google.android.material.timepicker.TimeFormat
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
@@ -18,19 +19,25 @@ import com.google.firebase.database.ValueEventListener
 import com.google.firebase.database.ktx.database
 import com.google.firebase.ktx.Firebase
 import com.squareup.picasso.Picasso
+import java.io.BufferedReader
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.InputStreamReader
 import java.text.DateFormat
 import java.util.*
-import java.util.regex.Pattern
-import kotlin.collections.ArrayList
 
+const val LOG_FILENAME: String = "logs";
 class MainActivity : AppCompatActivity() {
     lateinit var binding: ActivityMainBinding
     lateinit var auth: FirebaseAuth
     lateinit var adapter: UserAdapter
+    lateinit var remoteLogger: FirebaseLogs
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        remoteLogger = FirebaseLogs()
         binding = ActivityMainBinding.inflate(layoutInflater);
         auth = Firebase.auth
 
@@ -43,21 +50,16 @@ class MainActivity : AppCompatActivity() {
             val text = binding.fieldOfTextMessage.text.toString()
             if(text.isNotEmpty()) {
                 val displayName = auth.currentUser?.displayName
-                var userName: String? = "[Unknown user]"
+                var userName: String = "[Unknown user]"
 
                 if(displayName !== null && displayName.isNotEmpty()) {
                     userName = displayName
                 }
 
-//                val message = "$userName: $text";
-//                val date: String = getFormattedDate()
-//
-//                val parsedFormattedDate = serializeFormattedDate(getFormattedDate())
-
-//                Log.d("DEV_DEV_DEV", "$date: $parsedFormattedDate")
-//                val msgRef = myRef.child("$parsedFormattedDate")
-
                 myRef.child(myRef.push().key ?: "default").setValue(User(userName, text))
+
+                val log = remoteLogger.sendLog(database, text, userName)
+                writeLogInFile(log)
             }
 
             binding.fieldOfTextMessage.text.clear()
@@ -66,6 +68,45 @@ class MainActivity : AppCompatActivity() {
         onChangeListener(myRef)
         setupActionBar()
         InitListOfMessagesView()
+
+        Log.d("[FILE_READ]", readLogInFile());
+    }
+
+    private fun writeLogInFile(log: LogInfo) {
+        try {
+            val file = File(filesDir, LOG_FILENAME);
+
+            val isNewFileCreated:Boolean = file.createNewFile()
+
+            if(isNewFileCreated){
+                println("$LOG_FILENAME is created successfully.")
+            } else{
+                println("$LOG_FILENAME already exists.")
+            }
+
+            FileOutputStream(file).use {
+                val bytes: ByteArray = log.toString().toByteArray()
+                it.write(bytes)
+            }
+        } catch (e: Exception) {
+            Log.d("[FILE_WRITE_ERROR]", "ERORR");
+        }
+    }
+
+    private fun readLogInFile(): String {
+        try {
+            val file = File(filesDir, LOG_FILENAME)
+            val inputStream = FileInputStream(file)
+            val reader = InputStreamReader(inputStream)
+            val bufferedReader = BufferedReader(reader)
+            val data = bufferedReader.use {
+                it.readLines().joinToString(separator = "\n")
+            }
+
+            return data
+        } catch(e: Exception) {
+            return "Cant open file"
+        }
     }
 
     private fun InitListOfMessagesView() = with(binding) {
